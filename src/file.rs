@@ -1,28 +1,13 @@
 use actix_web::{web, HttpRequest, HttpResponse};
 use std::fs::File;
 use std::io::prelude::*;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub async fn post_file(req: HttpRequest, body: web::Bytes) -> HttpResponse {
-    let res: HttpResponse;
-    let filename = "example.jpg"; // nome do arquivo
-    let filepath = format!(r"D:\RUST\sync_server\src\arquivos/{}", filename); // caminho do arquivo
-    let mut file = match File::create(filepath) {
-        Ok(file) => file,
-        Err(e) => {
-            println!("Erro ao criar o arquivo: {:?}", e);
-            return HttpResponse::InternalServerError().finish();
-        }
-    };
-
-    // Grava o corpo da requisição no arquivo
-    match file.write_all(&body) {
-        Ok(_) => println!("Arquivo salvo com sucesso!"),
-        Err(e) => {
-            println!("Erro ao salvar o arquivo: {:?}", e);
-            return HttpResponse::InternalServerError().finish();
-        }
-    };
-    HttpResponse::Ok().body(format!("Arquivo {} salvo com sucesso!", filename))
+    match is_client_valid(req.headers().get("client").unwrap().to_str().unwrap()) {
+        true => create_file(body),
+        false => HttpResponse::BadRequest().body("Client not found"),
+    }
 }
 
 fn is_client_valid(client: &str) -> bool {
@@ -33,27 +18,42 @@ fn is_client_valid(client: &str) -> bool {
     }
 }
 
-/*vArrayClientes := TClientes.ObterInstancia;
+pub fn create_file(content: web::Bytes) -> HttpResponse {
+    let path = std::env::current_exe().unwrap_or_default();
+    let filename = get_file_name();
 
-  LStream := Req.Body<TMemoryStream>;
-  vArquivo := TArquivo.Create;
+    let mut file = match File::create(path.join(r"\files\").join(&filename)) {
+        Ok(file) => file,
+        Err(e) => {
+            println!("Fail during creating file: {:?}", e);
+            return HttpResponse::InternalServerError().finish();
+        }
+    };
 
-  vErro := vArquivo.ValidarBody(LStream);
-  writeln('Recebendo Arquivo');
-  try
-    if vErro = '' then
-      begin
-        vCliente := Req.Headers.Field('cliente').AsString;
-        vErro := vArquivo.ValidarHeader(vCliente, vArrayClientes);
+    match file.write_all(&content) {
+        Ok(_) => println!("File saved!"),
+        Err(e) => {
+            println!("Error during writing file: {:?}", e);
+            return HttpResponse::InternalServerError().finish();
+        }
+    };
 
-        if vErro = '' then
-          Res.Send(vArquivo.CriarArquivo(LStream, vCliente, vArrayClientes)).Status(201)
-        else
-          Res.Send(vErro).Status(400);
-      end
-    else
-      Res.Send(vErro).Status(415);
-  finally
-    FreeAndNil(vArquivo);
-  end;
-end;*/
+    HttpResponse::Ok().body(format!("File {} sucessfully saved", filename))
+}
+
+pub fn get_file_name() -> String {
+    let now = SystemTime::now();
+    let since_epoch = now
+        .duration_since(UNIX_EPOCH)
+        .expect("Failed to get duration since epoch");
+
+    let name = format!(
+        "{:02}{:02}{:02}{:02}{:06}",
+        since_epoch.as_secs() / 86400,
+        (since_epoch.as_secs() % 86400) / 3600,
+        (since_epoch.as_secs() % 3600) / 60,
+        (since_epoch.as_secs() % 60),
+        since_epoch.subsec_nanos() / 1000,
+    );
+    name
+}
