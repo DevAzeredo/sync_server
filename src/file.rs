@@ -1,13 +1,36 @@
+use crate::clients::*;
+use crate::header::HeaderValue;
 use actix_web::{web, HttpRequest, HttpResponse};
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::prelude::*;
 use std::time::{SystemTime, UNIX_EPOCH};
+const NULL_CLIENT_HEADER: HeaderValue = HeaderValue::from_static("");
 
-pub async fn post_file(req: HttpRequest, body: web::Bytes) -> HttpResponse {
-    match is_client_valid(req.headers().get("client").unwrap().to_str().unwrap()) {
+pub async fn post_file(
+    req: HttpRequest,
+    clientes: web::Data<Vec<ClientConfig>>,
+    body: web::Bytes,
+) -> HttpResponse {
+    let asd = &clientes[0];
+    println!("{asd:?}");
+
+    match is_client_valid(
+        req.headers()
+            .get("client")
+            .unwrap_or(&NULL_CLIENT_HEADER)
+            .to_str()
+            .unwrap(),
+    ) {
         true => create_file(body),
         false => HttpResponse::BadRequest().body("Client not found"),
     }
+}
+#[derive(Serialize, Deserialize)]
+struct FileResponse {
+    success: bool,
+    message: String,
+    file: String,
 }
 
 fn is_client_valid(client: &str) -> bool {
@@ -19,14 +42,29 @@ fn is_client_valid(client: &str) -> bool {
 }
 
 pub fn create_file(content: web::Bytes) -> HttpResponse {
-    let path = std::env::current_exe().unwrap_or_default();
     let filename = get_file_name();
+    let mut path = std::env::current_dir()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
 
-    let mut file = match File::create(path.join(r"\files\").join(&filename)) {
+    path.push_str(r"\files\");
+    path.push_str(&filename);
+
+    let mut file = match File::create(path) {
         Ok(file) => file,
         Err(e) => {
             println!("Fail during creating file: {:?}", e);
-            return HttpResponse::InternalServerError().finish();
+            return HttpResponse::InternalServerError().body(
+                serde_json::to_value(FileResponse {
+                    success: false,
+                    message: "Error during creating file".to_string(),
+                    file: "".to_string(),
+                })
+                .unwrap()
+                .to_string(),
+            );
         }
     };
 
@@ -34,11 +72,26 @@ pub fn create_file(content: web::Bytes) -> HttpResponse {
         Ok(_) => println!("File saved!"),
         Err(e) => {
             println!("Error during writing file: {:?}", e);
-            return HttpResponse::InternalServerError().finish();
+            return HttpResponse::InternalServerError().body(
+                serde_json::to_value(FileResponse {
+                    success: false,
+                    message: "Error during writing file".to_string(),
+                    file: "".to_string(),
+                })
+                .unwrap()
+                .to_string(),
+            );
         }
     };
-
-    HttpResponse::Ok().body(format!("File {} sucessfully saved", filename))
+    HttpResponse::Ok().body(
+        serde_json::to_value(FileResponse {
+            success: true,
+            message: "File saved".to_string(),
+            file: filename,
+        })
+        .unwrap()
+        .to_string(),
+    )
 }
 
 pub fn get_file_name() -> String {
