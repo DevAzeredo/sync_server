@@ -2,10 +2,61 @@ use crate::clients::*;
 use crate::header::HeaderValue;
 use actix_web::{web, HttpRequest, HttpResponse};
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 const NULL_CLIENT_HEADER: HeaderValue = HeaderValue::from_static("");
+
+pub async fn delete_file(
+    req: HttpRequest,
+    file: web::Path<String>,
+    clientes: web::Data<Vec<ClientConfig>>,
+) -> HttpResponse {
+    match is_client_valid(
+        req.headers()
+            .get("client")
+            .unwrap_or(&NULL_CLIENT_HEADER)
+            .to_str()
+            .unwrap(),
+        clientes,
+    ) {
+        true => exclude_file(&file),
+        false => HttpResponse::BadRequest().body("Client not found"),
+    }
+}
+pub fn exclude_file(filename: &str) -> HttpResponse {
+    let mut path = std::env::current_dir()
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+
+    path.push_str(r"\files\");
+    path.push_str(&filename);
+    
+    let res = fs::remove_file(path);
+    match res.is_ok() {
+        true => HttpResponse::Ok().body(
+            serde_json::to_value(FileResponse {
+                success: true,
+                message: "File deleted".to_string(),
+                file: filename.to_owned(),
+            })
+            .unwrap()
+            .to_string(),
+        ),
+        false => HttpResponse::InternalServerError().body(
+            serde_json::to_value(FileResponse {
+                success: false,
+                message: res.err().unwrap().to_string(),
+                file: filename.to_owned(),
+            })
+            .unwrap()
+            .to_string(),
+        ),
+    }
+}
 
 pub async fn post_file(
     req: HttpRequest,
@@ -21,6 +72,7 @@ pub async fn post_file(
             .unwrap_or(&NULL_CLIENT_HEADER)
             .to_str()
             .unwrap(),
+        clientes,
     ) {
         true => create_file(body),
         false => HttpResponse::BadRequest().body("Client not found"),
@@ -33,12 +85,20 @@ struct FileResponse {
     file: String,
 }
 
-fn is_client_valid(client: &str) -> bool {
+fn is_client_valid(client: &str, clientes: web::Data<Vec<ClientConfig>>) -> bool {
+    let mut ret = false;
     if client == "" {
-        return false;
+        ret = false;
     } else {
-        return true;
+        for cliente in clientes.iter() {
+            if cliente.id == client {
+                ret = true;
+            } else {
+                ret = false;
+            }
+        }
     }
+    ret
 }
 
 pub fn create_file(content: web::Bytes) -> HttpResponse {

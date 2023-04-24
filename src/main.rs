@@ -1,21 +1,15 @@
 mod clients;
 mod file;
-use crate::clients::ClientConfig;
 use actix_cors::Cors;
 use actix_files::NamedFile;
+use actix_web::{
+    http::{self, header, Method, StatusCode},
+    middleware, web, App, Either, HttpRequest, HttpResponse, HttpServer, Responder, Result,
+};
+use clients::ClientConfig;
 use clients::ClientesConfigManager;
 use lazy_static::lazy_static;
 use std::io;
-
-use actix_web::{
-    error,
-    http::{
-        self,
-        header::{self},
-        Method, StatusCode,
-    },
-    middleware, web, App, Either, HttpRequest, HttpResponse, HttpServer, Responder, Result,
-};
 
 async fn default_handler(req_method: Method) -> Result<impl Responder> {
     match req_method {
@@ -29,12 +23,19 @@ async fn default_handler(req_method: Method) -> Result<impl Responder> {
     }
 }
 
-async fn handle_post(
+async fn handle_post_file(
     req: HttpRequest,
     arquivos: web::Data<Vec<ClientConfig>>,
     body: web::Bytes,
 ) -> HttpResponse {
     file::post_file(req, arquivos, body).await
+}
+async fn handle_delete_file(
+    req: HttpRequest,
+    file: web::Path<String>,
+    clientes: web::Data<Vec<ClientConfig>>,
+) -> HttpResponse {
+    file::delete_file(req, file, clientes).await
 }
 
 lazy_static! {
@@ -54,39 +55,16 @@ async fn main() -> io::Result<()> {
             http::header::ACCEPT,
             http::header::CONTENT_TYPE,
         ]);
-        let clientes = CLIENTES.clone();
+        let clientes: Vec<ClientConfig> = CLIENTES.clone();
 
         App::new()
-            // enable automatic response compression - usually register this first
             .wrap(middleware::Compress::default())
-            // enable logger - always register Actix Web Logger middleware last
             .wrap(middleware::Logger::default())
             .wrap(cors)
             .app_data(web::PayloadConfig::new(10_485_760))
             .app_data(web::Data::new(clientes))
-            .service(web::resource("/arquivos").route(web::post().to(handle_post)))
-            .service(
-                web::resource("/test").to(|req: HttpRequest| match *req.method() {
-                    Method::GET => HttpResponse::Ok(),
-                    Method::POST => HttpResponse::MethodNotAllowed(),
-                    _ => HttpResponse::NotFound(),
-                }),
-            )
-            .service(web::resource("/error").to(|| async {
-                error::InternalError::new(
-                    io::Error::new(io::ErrorKind::Other, "test"),
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                )
-            }))
-            // redirect
-            .service(
-                web::resource("/").route(web::get().to(|req: HttpRequest| async move {
-                    println!("{req:?}");
-                    HttpResponse::Found()
-                        .insert_header((header::LOCATION, "static/welcome.html"))
-                        .finish()
-                })),
-            )
+            .service(web::resource("/files").route(web::post().to(handle_post_file)))
+            .service(web::resource("/files/{file_name}").route(web::delete().to(handle_delete_file)))
             // default
             .default_service(web::to(default_handler))
     })
