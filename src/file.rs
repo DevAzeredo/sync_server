@@ -34,7 +34,7 @@ pub fn exclude_file(filename: &str) -> HttpResponse {
 
     path.push_str(r"\files\");
     path.push_str(&filename);
-    
+
     let res = fs::remove_file(path);
     match res.is_ok() {
         true => HttpResponse::Ok().body(
@@ -64,7 +64,6 @@ pub async fn post_file(
     body: web::Bytes,
 ) -> HttpResponse {
     let asd = &clientes[0];
-    println!("{asd:?}");
 
     match is_client_valid(
         req.headers()
@@ -129,13 +128,12 @@ pub fn create_file(content: web::Bytes) -> HttpResponse {
     };
 
     match file.write_all(&content) {
-        Ok(_) => println!("File saved!"),
+        Ok(_) => log::info!("File saved!"),
         Err(e) => {
-            println!("Error during writing file: {:?}", e);
             return HttpResponse::InternalServerError().body(
                 serde_json::to_value(FileResponse {
                     success: false,
-                    message: "Error during writing file".to_string(),
+                    message: "Error during writing file - ".to_string() + e.to_string().as_str(),
                     file: "".to_string(),
                 })
                 .unwrap()
